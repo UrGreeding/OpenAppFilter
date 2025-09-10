@@ -1,0 +1,58 @@
+name: Build OpenAppFilter (6.6 kernel, ARM64)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-6-6-oaf:
+    runs-on: ubuntu-24.04-arm          # 原生 ARM64 runner
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential make git ncurses-dev libssl-dev \
+            wget unzip python3 python3-setuptools rsync \
+            file g++ gcc curl
+
+      - name: Clone ImmortalWrt (6.6 kernel)
+        run: |
+          git clone https://github.com/immortalwrt/immortalwrt.git
+          cd immortalwrt
+          git checkout v24.10.0-rc4      # 6.6 内核分支
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Insert OpenAppFilter source
+        run: |
+          cd immortalwrt
+          git clone https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
+
+      - name: Configure & build SDK + modules
+        run: |
+          cd immortalwrt
+          # ① 生成 SDK 本身（6.6 内核）
+          make defconfig
+          make tools/install -j$(nproc)
+          make toolchain/install -j$(nproc)
+          make target/sdk/compile V=s
+
+          # ② 进入自生成 SDK 编 kmod-oaf
+          tar -xf bin/targets/*/immortalwrt-sdk-*.tar.xz -C /tmp
+          cd /tmp/immortalwrt-sdk-*
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          # 默认已选中 ARM64，只需选模块
+          make defconfig
+          make package/OpenAppFilter/compile V=s -j$(nproc)
+
+      - name: Upload 6.6-kernel ipk
+        uses: actions/upload-artifact@v4
+        with:
+          name: oaf-6.6-arm64
+          path: /tmp/immortalwrt-sdk-*/bin/packages/*/base/*.ipk
