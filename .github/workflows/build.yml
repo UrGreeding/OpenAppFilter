@@ -24,7 +24,7 @@ jobs:
         run: |
           wget -q https://downloads.openwrt.org/releases/22.03.5/targets/armvirt/64/openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz
           tar -xf openwrt-sdk*.tar.xz
-          mv openwrt-sdk-* sdk
+          mv openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64 sdk
 
       - name: Update feeds
         run: |
