@@ -7,25 +7,52 @@ on:
 
 jobs:
   native-arm64:
-    runs-on: ubuntu-24.04-arm   # 原生 ARM64 VM
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install deps & build
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             build-essential make git ncurses-dev libssl-dev \
-            wget unzip python3 python3-setuptools
-          git clone https://github.com/destan19/OpenAppFilter.git
-          echo "CONFIG_PACKAGE_luci-app-oaf=y" >>.config  
-          make defconfig 
-          make package/luci-app-oaf/compile V=s  
-          make package/open-app-filter/compile V=s
-          make package/oaf/compile V=s
+            wget unzip python3 python3-setuptools rsync
+
+      - name: Download OpenWrt SDK for ARM64
+        run: |
+          # 下载对应版本的 OpenWrt SDK（这里以 22.03.5 为例）
+          SDK_URL="https://downloads.openwrt.org/releases/22.03.5/targets/armvirt/64/openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz"
+          wget $SDK_URL
+          tar -xf openwrt-sdk-*.tar.xz
+          mv openwrt-sdk-* openwrt-sdk
+          cd openwrt-sdk
+
+      - name: Add OpenAppFilter to SDK
+        run: |
+          cd openwrt-sdk
+          # 克隆 OpenAppFilter 到 package 目录
+          git clone https://github.com/destan19/OpenAppFilter.git package/openappfilter
+          
+          # 更新 feeds 并安装依赖
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure and build OpenAppFilter
+        run: |
+          cd openwrt-sdk
+          # 启用 OpenAppFilter 相关包
+          echo "CONFIG_PACKAGE_luci-app-oaf=y" >> .config
+          echo "CONFIG_PACKAGE_oaf=y" >> .config
+          echo "CONFIG_PACKAGE_open-app-filter=y" >> .config
+          
+          # 应用配置
+          make defconfig
+          
+          # 只编译 OpenAppFilter 相关包
+          make package/openappfilter/compile V=s -j$(nproc)
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: openappfilter-native-arm64
-          path: OpenAppFilter/*.ipk
+          path: openwrt-sdk/bin/packages/*/base/*oaf*.ipk
