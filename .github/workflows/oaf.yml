@@ -22,9 +22,9 @@ jobs:
 
       - name: Download OpenWrt SDK (ARM64)
         run: |
-          wget -q https://downloads.openwrt.org/releases/22.03.5/targets/armvirt/64/openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz
-          tar -xf openwrt-sdk*.tar.xz
-          mv openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64 sdk
+          wget https://downloads.immortalwrt.org/releases/24.10.0/targets/armvirt/64/immortalwrt-sdk-24.10.0-armvirt-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
+          tar -xf immortalwrt-sdk-*.tar.xz
+          mv immortalwrt-sdk-24.10.0-armvirt-64_gcc-13.3.0_musl.Linux-x86_64 sdk
 
       - name: Update feeds
         run: |
