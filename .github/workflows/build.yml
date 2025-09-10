@@ -18,41 +18,35 @@ jobs:
             build-essential make git ncurses-dev libssl-dev \
             wget unzip python3 python3-setuptools rsync
 
-      - name: Download OpenWrt SDK for ARM64
+      - name: Download and setup OpenWrt SDK
         run: |
-          # 下载对应版本的 OpenWrt SDK（这里以 22.03.5 为例）
+          # 下载 SDK
           SDK_URL="https://downloads.openwrt.org/releases/22.03.5/targets/armvirt/64/openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz"
           wget $SDK_URL
+          
+          # 直接解压到当前目录（会自动创建正确的子目录）
           tar -xf openwrt-sdk-*.tar.xz
-          mv openwrt-sdk-* openwrt-sdk
-          cd openwrt-sdk
+          
+          # 进入解压后的目录（通常以 openwrt-sdk10 开头）
+          cd openwrt-sdk-*
 
-      - name: Add OpenAppFilter to SDK
+      - name: Add and build OpenAppFilter
         run: |
-          cd openwrt-sdk
-          # 克隆 OpenAppFilter 到 package 目录
+          # 克隆 OpenAppFilter
           git clone https://github.com/destan19/OpenAppFilter.git package/openappfilter
           
-          # 更新 feeds 并安装依赖
+          # 更新 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
-      - name: Configure and build OpenAppFilter
-        run: |
-          cd openwrt-sdk
-          # 启用 OpenAppFilter 相关包
+          
+          # 配置并编译
           echo "CONFIG_PACKAGE_luci-app-oaf=y" >> .config
           echo "CONFIG_PACKAGE_oaf=y" >> .config
-          echo "CONFIG_PACKAGE_open-app-filter=y" >> .config
-          
-          # 应用配置
           make defconfig
-          
-          # 只编译 OpenAppFilter 相关包
           make package/openappfilter/compile V=s -j$(nproc)
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: openappfilter-native-arm64
-          path: openwrt-sdk/bin/packages/*/base/*oaf*.ipk
+          path: openwrt-sdk-*/bin/packages/*/base/*oaf*.ipk
