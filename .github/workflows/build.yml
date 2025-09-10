@@ -18,8 +18,11 @@ jobs:
             build-essential make git ncurses-dev libssl-dev \
             wget unzip python3 python3-setuptools
           git clone https://github.com/destan19/OpenAppFilter.git
-          cd OpenAppFilter
-          make
+          echo "CONFIG_PACKAGE_luci-app-oaf=y" >>.config  
+          make defconfig 
+          make package/luci-app-oaf/compile V=s  
+          make package/open-app-filter/compile V=s
+          make package/oaf/compile V=s
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
