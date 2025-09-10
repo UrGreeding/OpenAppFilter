@@ -44,8 +44,49 @@ jobs:
           make defconfig
           make package/luci-app-oaf/compile V=s -j$(nproc)
 
+      # - name: Upload ipk artifacts
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: openappfilter-arm64-ipk
+      #     path: sdk/bin/packages/*/luci/*.ipk
+      - name: Find and collect IPK files
+        run: |
+          cd sdk
+          # 创建输出目录
+          mkdir -p ../artifacts
+          # 查找所有相关的IPK文件
+          find . -name "*oaf*.ipk" -o -name "*appfilter*.ipk" | while read ipk; do
+            echo "Found IPK: $ipk"
+            cp "$ipk" ../artifacts/
+          done
+          # 如果没找到，尝试标准位置
+          if [ ! -f ../artifacts/*.ipk ]; then
+            cp bin/packages/*/base/*oaf*.ipk ../artifacts/ 2>/dev/null || true
+            cp bin/packages/*/luci/*oaf*.ipk ../artifacts/ 2>/dev/null || true
+          fi
+          # 列出找到的文件
+          echo "Collected artifacts:"
+          ls -la ../artifacts/ || echo "No artifacts found"
+
       - name: Upload ipk artifacts
+        if: success() || failure()  # 即使编译失败也上传已找到的文件
         uses: actions/upload-artifact@v4
         with:
           name: openappfilter-arm64-ipk
-          path: sdk/bin/packages/*/luci/*.ipk
+          path: artifacts/*.ipk
+          if-no-files-found: warn  # 如果没有文件，警告而不是失败
+
+      - name: Debug info (on failure)
+        if: failure()
+        run: |
+          cd sdk
+          echo "=== Debug information ==="
+          echo "Current directory: $(pwd)"
+          echo "Package directory contents:"
+          ls -la package/ 2>/dev/null || echo "No package directory"
+          echo "Feeds directory contents:"
+          ls -la feeds/ 2>/dev/null || echo "No feeds directory"
+          echo "OpenAppFilter directory:"
+          ls -la package/openappfilter/ 2>/dev/null || echo "No openappfilter directory"
+          echo "Config contents:"
+          grep -i "oaf\|appfilter" .config 2>/dev/null || echo "No relevant config found"
