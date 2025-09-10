@@ -28,7 +28,7 @@ jobs:
           tar -xf openwrt-sdk-*.tar.xz
           
           # 进入解压后的目录（通常以 openwrt-sdk10 开头）
-          cd openwrt-sdk-*
+          cd openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64
 
       - name: Add and build OpenAppFilter
         run: |
