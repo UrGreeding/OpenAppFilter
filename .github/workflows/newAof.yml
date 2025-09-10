@@ -1,0 +1,142 @@
+name: Build OpenAppFilter for ARM64
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:   # 手动触发按钮
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
+            gettext git java-propose-classpath libelf-dev libncurses5-dev \
+            libncursesw5-dev libssl-dev python3 python3-distutils python3-setuptools \
+            python3-dev rsync subversion swig time xsltproc zlib1g-dev wget
+
+      - name: Download OpenWrt SDK (ARM64)
+        run: |
+          SDK_URL="https://downloads.openwrt.org/releases/22.03.5/targets/armvirt/64/openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz"
+          wget -q $SDK_URL
+          tar -xf openwrt-sdk-*.tar.xz
+          # 动态获取并重命名SDK目录
+          SDK_DIR=$(find . -maxdepth 1 -name "openwrt-sdk-*" -type d | head -1)
+          mv "$SDK_DIR" sdk
+          echo "SDK directory: $SDK_DIR"
+
+      - name: Add OpenAppFilter source
+        run: |
+          cd sdk
+          # 克隆到package目录
+          git clone https://github.com/destan19/OpenAppFilter.git package/openappfilter
+          # 检查是否克隆成功
+          if [ -d "package/openappfilter" ]; then
+            echo "OpenAppFilter cloned successfully"
+            ls -la package/openappfilter/
+          else
+            echo "Failed to clone OpenAppFilter"
+            exit 1
+          fi
+
+      - name: Update and install feeds
+        run: |
+          cd sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          # 显式安装OpenAppFilter相关的包
+          ./scripts/feeds install -a -p openappfilter
+
+      - name: Configure build
+        run: |
+          cd sdk
+          # 启用必要的包配置
+          echo "CONFIG_PACKAGE_luci-app-oaf=y" >> .config
+          echo "CONFIG_PACKAGE_oaf=y" >> .config
+          echo "CONFIG_PACKAGE_open-app-filter=y" >> .config
+          # 应用配置
+          make defconfig
+          # 验证配置
+          grep -i "oaf\|appfilter" .config || echo "No oaf config found"
+
+      - name: Build OpenAppFilter packages
+        run: |
+          cd sdk
+          # 尝试编译所有相关的包
+          echo "Building OpenAppFilter packages..."
+          
+          # 先尝试编译核心包
+          make package/openappfilter/oaf/compile V=s -j$(nproc) || \
+          make package/feeds/openappfilter/oaf/compile V=s -j$(nproc) || \
+          echo "oaf package not found in expected location"
+          
+          # 编译Luci界面
+          make package/openappfilter/luci-app-oaf/compile V=s -j$(nproc) || \
+          make package/feeds/openappfilter/luci-app-oaf/compile V=s -j$(nproc) || \
+          echo "luci-app-oaf package not found in expected location"
+          
+          # 编译主包
+          make package/openappfilter/open-app-filter/compile V=s -j$(nproc) || \
+          make package/feeds/openappfilter/open-app-filter/compile V=s -j$(nproc) || \
+          echo "open-app-filter package not found in expected location"
+          
+          # 通用编译尝试
+          make package/openappfilter/compile V=s -j$(nproc) || \
+          make package/feeds/openappfilter/compile V=s -j$(nproc) || \
+          {
+            echo "Trying to find and build all related packages..."
+            # 查找所有包含oaf或appfilter的包
+            find . -name "Makefile" -exec grep -l "oaf\|appfilter" {} \; | while read makefile; do
+              pkg_dir=$(dirname $makefile)
+              pkg_name=$(basename $pkg_dir)
+              echo "Building $pkg_name from $pkg_dir"
+              make ${pkg_dir#./}/compile V=s -j1
+            done
+          }
+
+      - name: Find and collect IPK files
+        run: |
+          cd sdk
+          # 创建输出目录
+          mkdir -p ../artifacts
+          # 查找所有相关的IPK文件
+          find . -name "*oaf*.ipk" -o -name "*appfilter*.ipk" | while read ipk; do
+            echo "Found IPK: $ipk"
+            cp "$ipk" ../artifacts/
+          done
+          # 如果没找到，尝试标准位置
+          if [ ! -f ../artifacts/*.ipk ]; then
+            cp bin/packages/*/base/*oaf*.ipk ../artifacts/ 2>/dev/null || true
+            cp bin/packages/*/luci/*oaf*.ipk ../artifacts/ 2>/dev/null || true
+          fi
+          # 列出找到的文件
+          echo "Collected artifacts:"
+          ls -la ../artifacts/ || echo "No artifacts found"
+
+      - name: Upload ipk artifacts
+        if: success() || failure()  # 即使编译失败也上传已找到的文件
+        uses: actions/upload-artifact@v4
+        with:
+          name: openappfilter-arm64-ipk
+          path: artifacts/*.ipk
+          if-no-files-found: warn  # 如果没有文件，警告而不是失败
+
+      - name: Debug info (on failure)
+        if: failure()
+        run: |
+          cd sdk
+          echo "=== Debug information ==="
+          echo "Current directory: $(pwd)"
+          echo "Package directory contents:"
+          ls -la package/ 2>/dev/null || echo "No package directory"
+          echo "Feeds directory contents:"
+          ls -la feeds/ 2>/dev/null || echo "No feeds directory"
+          echo "OpenAppFilter directory:"
+          ls -la package/openappfilter/ 2>/dev/null || echo "No openappfilter directory"
+          echo "Config contents:"
+          grep -i "oaf\|appfilter" .config 2>/dev/null || echo "No relevant config found"
