@@ -1,0 +1,60 @@
+name: Build Geco IPK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-geco-ipk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
+            gettext git java-propose-classpath libelf-dev libncurses5-dev \
+            libncursesw5-dev libssl-dev python3 python3-distutils python3-setuptools \
+            python3-dev rsync subversion swig time xsltproc zlib1g-dev
+
+      - name: Download OpenWrt SDK
+        run: |
+          wget -q https://downloads.openwrt.org/releases/22.03.5/targets/armvirt/64/openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz
+          tar -xf openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz
+
+      - name: Move SDK to sdk directory
+        run: |
+          mkdir -p sdk
+          sdk_folder=$(ls -d openwrt-sdk-*)
+          if [ -d "$sdk_folder" ]; then
+            mv "$sdk_folder" sdk/
+          else
+            echo "No matching SDK folder found."
+          fi
+
+      - name: Update feeds
+        run: |
+          cd sdk/openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Clone Geco source
+        run: |
+          cd sdk/openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64
+          git clone https://github.com/lwb1978/openwrt-gecoosac.git package/openwrt-gecoosac
+
+      - name: Configure and build
+        run: |
+          cd sdk/openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64
+          make menuconfig
+          make package/openwrt-gecoosac/compile V=s -j$(nproc)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: geco-ipk
+          path: sdk/openwrt-sdk-22.03.5-armvirt-64_gcc-11.2.0_musl.Linux-x86_64/bin/packages/*/luci/*.ipk
