@@ -66,25 +66,25 @@ jobs:
           cd sdk
           # 使用通用ARM64配置，避免平台特定问题
           cat << EOF >> .config
-CONFIG_TARGET_armvirt=y
-CONFIG_TARGET_armvirt_64=y
-CONFIG_TARGET_armvirt_64_Default=y
-CONFIG_PACKAGE_luci-app-oaf=y
-CONFIG_PACKAGE_oaf=y
-CONFIG_PACKAGE_open-app-filter=y
-CONFIG_PACKAGE_kmod-oaf=y
-CONFIG_PACKAGE_libnl-tiny=y
-CONFIG_PACKAGE_kmod-ipt-core=y
-CONFIG_PACKAGE_kmod-ipt-extra=y
-CONFIG_PACKAGE_kmod-ipset=y
-CONFIG_PACKAGE_kmod-nf-conntrack=y
-CONFIG_PACKAGE_kmod-nf-nat=y
-CONFIG_KERNEL_NET_EMATCH=y
-CONFIG_KERNEL_NET_CLS_ACT=y
-# 禁用签名验证，避免平台不匹配
-CONFIG_SIGNED_PACKAGES=n
-CONFIG_CHECK_SIGNATURE=n
-EOF
+          CONFIG_TARGET_armvirt=y
+          CONFIG_TARGET_armvirt_64=y
+          CONFIG_TARGET_armvirt_64_Default=y
+          CONFIG_PACKAGE_luci-app-oaf=y
+          CONFIG_PACKAGE_oaf=y
+          CONFIG_PACKAGE_open-app-filter=y
+          CONFIG_PACKAGE_kmod-oaf=y
+          CONFIG_PACKAGE_libnl-tiny=y
+          CONFIG_PACKAGE_kmod-ipt-core=y
+          CONFIG_PACKAGE_kmod-ipt-extra=y
+          CONFIG_PACKAGE_kmod-ipset=y
+          CONFIG_PACKAGE_kmod-nf-conntrack=y
+          CONFIG_PACKAGE_kmod-nf-nat=y
+          CONFIG_KERNEL_NET_EMATCH=y
+          CONFIG_KERNEL_NET_CLS_ACT=y
+          # 禁用签名验证，避免平台不匹配
+          CONFIG_SIGNED_PACKAGES=n
+          CONFIG_CHECK_SIGNATURE=n
+          EOF
           
           make defconfig
           echo "Configuration applied:"
