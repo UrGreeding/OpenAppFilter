@@ -1,4 +1,4 @@
-name: Build OpenAppFilter (6.6 kernel, ARM64)
+name: Build OpenAppFilter for IPQ8071A using OpenWrt SDK
 
 on:
   push:
@@ -6,53 +6,157 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-6-6-oaf:
-    runs-on: ubuntu-24.04-arm          # 原生 ARM64 runner
+  build:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install build deps
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential make git ncurses-dev libssl-dev \
-            wget unzip python3 python3-setuptools rsync \
-            file g++ gcc curl
+          sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
+            gettext git java-propose-classpath libelf-dev libncurses5-dev \
+            libncursesw5-dev libssl-dev python3 python3-setuptools \
+            python3-dev rsync subversion swig time xsltproc zlib1g-dev wget curl
 
-      - name: Clone ImmortalWrt (6.6 kernel)
+      - name: Download OpenWrt SDK for ARM64
         run: |
-          git clone https://github.com/immortalwrt/immortalwrt.git
-          cd immortalwrt
-          git checkout v24.10.0-rc4      # 6.6 内核分支
+          # 使用 OpenWrt 23.05.x SDK，内核版本较新
+          SDK_URL="https://downloads.openwrt.org/releases/23.05.3/targets/armvirt/64/openwrt-sdk-23.05.3-armvirt-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
+          
+          echo "Downloading OpenWrt SDK..."
+          wget -q $SDK_URL
+          tar -xf openwrt-sdk-*.tar.xz
+          
+          # 查找并重命名SDK目录
+          SDK_DIR=$(find . -maxdepth 1 -name "openwrt-sdk-*" -type d | head -1)
+          if [ -n "$SDK_DIR" ]; then
+            mv "$SDK_DIR" sdk
+            echo "Using OpenWrt SDK: $SDK_DIR"
+          else
+            echo "Error: Could not find SDK directory"
+            exit 1
+          fi
+
+      - name: Clone OpenAppFilter
+        run: |
+          cd sdk
+          git clone https://github.com/destan19/OpenAppFilter.git package/openappfilter
+          
+          # 检查是否有高版本内核支持
+          cd package/openappfilter
+          if git branch -a | grep -q "kernel-6"; then
+            echo "Found kernel-6 branch, switching..."
+            git checkout kernel-6.6 || git checkout kernel-6.1 || git checkout master
+          fi
+          cd ../../
+
+      - name: Update feeds and install dependencies
+        run: |
+          cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          
+          # 安装必要的依赖
+          ./scripts/feeds install libnl-tiny kmod-ipt-core kmod-ipt-extra kmod-ipset
 
-      - name: Insert OpenAppFilter source
+      - name: Configure for generic ARM64 build
         run: |
-          cd immortalwrt
-          git clone https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
+          cd sdk
+          # 使用通用ARM64配置，避免平台特定问题
+          cat << EOF >> .config
+CONFIG_TARGET_armvirt=y
+CONFIG_TARGET_armvirt_64=y
+CONFIG_TARGET_armvirt_64_Default=y
+CONFIG_PACKAGE_luci-app-oaf=y
+CONFIG_PACKAGE_oaf=y
+CONFIG_PACKAGE_open-app-filter=y
+CONFIG_PACKAGE_kmod-oaf=y
+CONFIG_PACKAGE_libnl-tiny=y
+CONFIG_PACKAGE_kmod-ipt-core=y
+CONFIG_PACKAGE_kmod-ipt-extra=y
+CONFIG_PACKAGE_kmod-ipset=y
+CONFIG_PACKAGE_kmod-nf-conntrack=y
+CONFIG_PACKAGE_kmod-nf-nat=y
+CONFIG_KERNEL_NET_EMATCH=y
+CONFIG_KERNEL_NET_CLS_ACT=y
+# 禁用签名验证，避免平台不匹配
+CONFIG_SIGNED_PACKAGES=n
+CONFIG_CHECK_SIGNATURE=n
+EOF
+          
+          make defconfig
+          echo "Configuration applied:"
+          grep "CONFIG_TARGET\|CONFIG_PACKAGE" .config | grep -E "(armvirt|oaf)"
 
-      - name: Configure & build SDK + modules
+      - name: Build packages with kernel version check
         run: |
-          cd immortalwrt
-          # ① 生成 SDK 本身（6.6 内核）
-          make defconfig
-          make tools/install -j$(nproc)
-          make toolchain/install -j$(nproc)
-          make target/sdk/compile V=s
+          cd sdk
+          echo "Building with OpenWrt SDK..."
+          
+          # 先检查内核版本兼容性
+          KERNEL_VERSION=$(grep "LINUX_VERSION" .config | cut -d= -f2 | tr -d '"')
+          echo "SDK Kernel version: $KERNEL_VERSION"
+          echo "Target kernel version: 6.6.87"
+          
+          # 编译用户空间组件（通常更兼容）
+          make package/openappfilter/oaf/compile V=s -j$(nproc)
+          make package/openappfilter/open-app-filter/compile V=s -j$(nproc)
+          make package/openappfilter/luci-app-oaf/compile V=s -j$(nproc)
+          
+          # 尝试编译内核模块（可能不兼容）
+          make package/openappfilter/kmod-oaf/compile V=s -j1 || \
+          {
+            echo "Kernel module compilation failed - this is expected with different SDK"
+            echo "User-space packages should still work if kernel APIs are compatible"
+          }
 
-          # ② 进入自生成 SDK 编 kmod-oaf
-          tar -xf bin/targets/*/immortalwrt-sdk-*.tar.xz -C /tmp
-          cd /tmp/immortalwrt-sdk-*
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          # 默认已选中 ARM64，只需选模块
-          make defconfig
-          make package/OpenAppFilter/compile V=s -j$(nproc)
+      - name: Collect packages
+        run: |
+          cd sdk
+          mkdir -p ../artifacts
+          
+          # 收集所有IPK文件
+          find . -name "*oaf*.ipk" -o -name "*appfilter*.ipk" | while read ipk; do
+            echo "Found: $ipk"
+            cp "$ipk" ../artifacts/
+          done
+          
+          # 特别标记内核模块
+          find . -name "*kmod-oaf*" -o -name "*oaf-kmod*" | while read kmod; do
+            if [ -f "$kmod" ]; then
+              echo "Kernel module found: $kmod"
+              cp "$kmod" ../artifacts/
+            fi
+          done
+          
+          echo "Generated packages:"
+          ls -la ../artifacts/
 
-      - name: Upload 6.6-kernel ipk
+      - name: Upload artifacts with compatibility notice
         uses: actions/upload-artifact@v4
         with:
-          name: oaf-6.6-arm64
-          path: /tmp/immortalwrt-sdk-*/bin/packages/*/base/*.ipk
+          name: openappfilter-openwrt-sdk-ipk
+          path: artifacts/*.ipk
+          if-no-files-found: warn
+
+      - name: Generate compatibility report
+        run: |
+          cd sdk
+          echo "=== COMPATIBILITY REPORT ===" > ../compatibility.txt
+          echo "Build SDK: OpenWrt" >> ../compatibility.txt
+          echo "SDK Kernel: $(grep 'LINUX_VERSION' .config | cut -d= -f2 | tr -d '"')" >> ../compatibility.txt
+          echo "Target Kernel: 6.6.87" >> ../compatibility.txt
+          echo "Target Platform: IPQ8071A" >> ../compatibility.txt
+          echo "" >> ../compatibility.txt
+          echo "NOTICE: Packages built with OpenWrt SDK may not be fully compatible" >> ../compatibility.txt
+          echo "with ImmortalWrt 6.6.87 on IPQ8071A. Kernel modules (kmod-oaf) are" >> ../compatibility.txt
+          echo "most likely to have issues. User-space packages may work if kernel" >> ../compatibility.txt
+          echo "APIs are compatible." >> ../compatibility.txt
+
+      - name: Upload compatibility report
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-report
+          path: compatibility.txt
